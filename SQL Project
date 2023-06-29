@@ -84,17 +84,16 @@ Include in your output the name of the court, and the name of the member
 formatted as a single column. Ensure no duplicate data, and order by
 the member name. */
 
-SELECT BF.facid, Members.surname, Members.firstname, BF.name
-FROM (
-
-SELECT DISTINCT Bookings.facid, Bookings.memid, Facilities.name
+SELECT DISTINCT
+  Facilities.name,
+  CONCAT(Members.firstname," ",Members.surname) as fullname
 FROM Bookings
-LEFT JOIN Facilities ON Bookings.facid = Facilities.facid
-WHERE Bookings.facid =0
-OR Bookings.facid =1
-) AS BF
-LEFT JOIN Members ON BF.memid = Members.memid
-ORDER BY Members.surname, Members.firstname;
+INNER JOIN Facilities
+ON Facilities.facid = Bookings.facid
+INNER JOIN Members
+ON Members.memid = Bookings.memid
+WHERE Facilities.facid IN (0,1)
+ORDER BY fullname;
 
 /* Q8: Produce a list of bookings on the day of 2012-09-14 which
 will cost the member (or guest) more than $30. Remember that guests have
@@ -103,20 +102,43 @@ the guest user's ID is always 0. Include in your output the name of the
 facility, the name of the member formatted as a single column, and the cost.
 Order by descending cost, and do not use any subqueries. */
 
-SELECT Facilities.name, Members.firstname + " " + Members.surname AS fullname, Facilities.membercost, Facilities.guestcost
+SELECT
+  Facilities.name,
+  CONCAT(Members.firstname," ",Members.surname) as fullname,
+  CASE WHEN Bookings.memid = 0 THEN Bookings.slots * Facilities.guestcost
+  	  ELSE Bookings.slots * Facilities.membercost END AS cost
 FROM Bookings
 INNER JOIN Facilities
 ON Facilities.facid = Bookings.facid
 INNER JOIN Members
 ON Members.memid = Bookings.memid
-WHERE Bookings.starttime LIKE 2012-09-14
-AND Facilities.membercost > 30 OR Facilities.guestcost > 30
-ORDER BY Facilities.guestcost DESC;
+WHERE CAST(Bookings.starttime AS DATE) = '2012-09-14' AND 
+(CASE WHEN Bookings.memid = 0 THEN Bookings.slots * Facilities.guestcost
+  	  ELSE Bookings.slots * Facilities.membercost END) > 30
+ORDER BY cost DESC;
 
 /* Q9: This time, produce the same result as in Q8, but using a subquery. */
 
+SELECT 
+	sub.bookid, 
+	CONCAT(Members.firstname," ",Members.surname) as fullname, 
+    sub.cost
+FROM 
+(SELECT 
+Bookings.bookid, 
+Bookings.memid,
+CASE WHEN Bookings.memid = 0 THEN Bookings.slots * Facilities.guestcost
+  	  ELSE Bookings.slots * Facilities.membercost END AS cost
+FROM Bookings
+LEFT JOIN Facilities
+ON Facilities.facid = Bookings.facid
+WHERE CAST(Bookings.starttime AS DATE) = '2012-09-14') AS sub
+LEFT JOIN Members ON sub.memid = Members.memid
+WHERE sub.cost > 30
+ORDER BY sub.cost DESC;
+
 /* PART 2: SQLite
-/* We now want you to jump over to a local instance of the database on your machine. 
+We now want you to jump over to a local instance of the database on your machine. 
 
 Copy and paste the LocalSQLConnection.py script into an empty Jupyter notebook, and run it. 
 
@@ -125,20 +147,57 @@ that you haven't changed the name of the .db file from 'sqlite\db\pythonsqlite'.
 
 You should see the output from the initial query 'SELECT * FROM FACILITIES'.
 
-Complete the remaining tasks in the Jupyter interface. If you struggle, feel free to go back
-to the PHPMyAdmin interface as and when you need to. 
 
-You'll need to paste your query into value of the 'query1' variable and run the code block again to get an output.
+n the code block again to get an output.
  
 QUESTIONS:
-/* Q10: Produce a list of facilities with a total revenue less than 1000.
+Q10: Produce a list of facilities with a total revenue less than 1000.
 The output of facility name and total revenue, sorted by revenue. Remember
 that there's a different cost for guests and members! */
 
+SELECT 
+	Bookings.facid, 
+	Facilities.name, 
+	SUM( CASE WHEN Bookings.memid = 0 THEN Bookings.slots * Facilities.guestcost
+  	ELSE Bookings.slots * Facilities.membercost END ) AS total_revenue
+FROM Bookings
+	INNER JOIN Facilities
+	ON Facilities.facid = Bookings.facid
+	INNER JOIN Members
+	ON Members.memid = Bookings.memid
+GROUP BY Facilities.name
+HAVING total_revenue <1000;
+
 /* Q11: Produce a report of members and who recommended them in alphabetic surname,firstname order */
 
-
+SELECT DISTINCT
+	m1.surname,
+    m1.firstname,
+    CONCAT(m2.surname,", ",m2.firstname) as recommendedby
+FROM Members AS m1 
+LEFT JOIN Members AS m2
+ON m1.recommendedby = m2.memid
+ORDER BY m1.surname, m1.firstname;
+    
 /* Q12: Find the facilities with their usage by member, but not guests */
 
+SELECT
+	Facilities.name,
+    SUM( CASE WHEN Bookings.memid != 0 THEN Bookings.slots
+  	ELSE 0 END ) AS total_slots_usage
+FROM Bookings
+	INNER JOIN Facilities
+	ON Facilities.facid = Bookings.facid
+GROUP BY Facilities.name;
 
-/* Q13: Find the facilities usage by month, but not guests */;
+/* Q13: Find the facilities usage by month, but not guests */
+
+SELECT
+	Facilities.name,
+    SUM( CASE WHEN Bookings.memid != 0 THEN Bookings.slots
+  	ELSE 0 END ) AS total_slots_usage,
+    EXTRACT(MONTH FROM (CAST(Bookings.starttime AS DATE))) AS month
+FROM Bookings
+	INNER JOIN Facilities
+	ON Facilities.facid = Bookings.facid
+GROUP BY month,Facilities.name;
